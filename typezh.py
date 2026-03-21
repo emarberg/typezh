@@ -3,6 +3,7 @@ import os
 from os import system
 from pathlib import Path
 from collections import OrderedDict
+import pyperclip
 import random
 import readline
 from simplifier import simplify, is_simplified, is_traditional
@@ -18,14 +19,19 @@ def clear_screen():
     os.system('cls' if os.name == 'nt' else 'clear')
 
 
-def speak(s, voice='Meijia'):
-    system('say -v %s ' % voice + s)
-
-
 class Manager:
 
     PUNCTUATION = '!"#$%&\'()*+,-./:;<=>?@[\\]^_`、﹐{|}~，。！：°（）－．／﹗﹣～﹖；？＂《》「」『』・–—‘’“”•…‧«»%％'
     SENTENCES_FILE = 'data/sentences_zh.csv'
+
+    def speak(self, s, voice='Meijia'):
+        if not self.muted:
+            #system('say -v %s ' % voice + s)
+            if self.lastwritten != s:
+                self.lastwritten = s
+                system('edge-tts --text "%s" --write-media temp.mp3; afplay temp.mp3' % s)
+            else:
+                system('afplay temp.mp3')
 
     def is_valid_sentence(self, s):
         chars = set(s) - set(self.PUNCTUATION)
@@ -37,11 +43,15 @@ class Manager:
             return False
         return True
 
-    def __init__(self, profile, mode=TRADITIONAL_MODE):
+    def __init__(self, profile, mode=TRADITIONAL_MODE, muted=False):
         self.mode = mode
+        self.muted = muted
+        self.added = []
         self.setup_csv(profile)
         self.read_data()
+
         self.quit = False
+        self.lastwritten = ''
 
     def setup_csv(self, profile):
         Path("./profiles/" + profile).mkdir(parents=True, exist_ok=True)
@@ -111,6 +121,8 @@ class Manager:
             print('add? (y/n)')
             print()
             a = input('')
+            if a and a[0] == 'y':
+                self.added = [(sentence, s)]
 
     def matches(self, sentence, received):
         a = tuple(s for s in sentence if s not in self.PUNCTUATION)
@@ -125,11 +137,12 @@ class Manager:
 
     def extend_base(self, sentence, base, s):
         ell = len(base)
-        for i in range(len(s)):
-            j = ell + i
-            a, b = s[i], sentence[j]
-            if j < len(sentence) and (a == b) or (a in self.PUNCTUATION and b in self.PUNCTUATION):
-                base += a
+        for i in range(ell, len(s)):
+            if i >= len(sentence):
+                break
+            a, b = s[i], sentence[i]
+            if (a == b) or (a in self.PUNCTUATION and b in self.PUNCTUATION):
+                base += b
             else:
                 break
         return base
@@ -140,11 +153,12 @@ class Manager:
 
         base = ''
         while True:
+            pyperclip.copy(sentence[len(base):len(base) + 1])
             self.print_sentence(sentence)
             print(base, end='')
 
             if aloud:
-                speak(sentence[len(base):])
+                self.speak(sentence[len(base):])
             
             s = input()
 
@@ -162,10 +176,9 @@ class Manager:
             s = base + s
             base = self.extend_base(sentence, base, s)
 
-            print(list(base))
-            print(len(sentence))
             if self.matches(sentence, s):
-                speak(sentence)
+                self.speak(sentence)
+                pyperclip.copy(sentence)
                 translation = self.get_translation(sentence)
                 if translation is None:
                     self.add_translation(sentence)
@@ -175,6 +188,8 @@ class Manager:
                     print()
                     s = input('')
                 break
+            else:
+                aloud = True
 
 
 def main():
