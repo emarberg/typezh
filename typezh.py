@@ -39,6 +39,16 @@ def translate_with_google(text, sl='auto', tl='en'):
     webbrowser.open(url)
 
 
+class SystemCallError(Exception):
+    pass
+
+
+def systemcall(command):
+    exit_code = system(command)
+    if exit_code != 0:
+        raise SystemCallError
+
+
 class Manager:
 
     PUNCTUATION = '!"#$%&\'()*+,-./:;<=>?@[\\]^_`、﹐{|}~，。！：°（）－．／﹗﹣～﹖；？＂《》「」『』・–—‘’“”•…‧«»%％'
@@ -50,7 +60,7 @@ class Manager:
             try:
                 if temp:
                     if self.temp_sound != s:
-                        system('edge-tts --text "%s" --write-media sounds/temp.mp3; afplay sounds/temp.mp3' % s)
+                        systemcall('edge-tts --text "%s" --write-media sounds/temp.mp3 >/dev/null 2>&1; afplay sounds/temp.mp3 >/dev/null 2>&1' % s)
                         self.temp_sound = s
                     else:
                         system('afplay sounds/temp.mp3')
@@ -59,10 +69,10 @@ class Manager:
                     file_path = Path(file_name)
 
                     if not file_path.exists():
-                        system('edge-tts --text "%s" --write-media %s; afplay %s' % (s, file_name, file_name))
+                        systemcall('edge-tts --text "%s" --write-media %s >/dev/null 2>&1; afplay %s >/dev/null 2>&1' % (s, file_name, file_name))
                     else:
                         system('afplay %s' % file_name)
-            except:
+            except SystemCallError:
                 system('say -v Meijia ' + s)
 
     def is_valid_sentence(self, s):
@@ -161,14 +171,27 @@ class Manager:
             return translation
 
     def add_translation(self, sentence):
-        translate_with_google(sentence, sl='zh', tl='en')
         clear_screen()
         print()
         print(sentence)
         print()
-        print('add a translation:')
+        print('add a translation / press enter to open Google translate')
         print()      
         s = input('')
+        if s == '':
+            translate_with_google(sentence, sl='zh', tl='en')
+            clear_screen()
+            print()
+            print(sentence)
+            print()
+            print('add a translation:')
+            print()
+            s = input('')
+        else:
+            print()
+            confirm = input('confirm add [y/n]: ')
+            if confirm != 'y':
+                s = ''
         if s:
             self.new_translations.append((sentence, s))
 
@@ -183,7 +206,7 @@ class Manager:
         print(sentence)
         print()
 
-    def extend_base(self, sentence, base, s):
+    def extend_match(self, sentence, base, s):
         ell = len(base)
         for i in range(ell, len(s)):
             if i >= len(sentence):
@@ -222,7 +245,7 @@ class Manager:
                 continue
                         
             s = base + s
-            base = self.extend_base(sentence, base, s)
+            base = self.extend_match(sentence, base, s)
 
             if self.matches(sentence, s):
                 self.speak(sentence, temp=False)
