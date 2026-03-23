@@ -6,6 +6,10 @@ from collections import OrderedDict
 import pyperclip
 import random
 import readline
+
+import webbrowser
+import urllib.parse
+
 from simplifier import simplify, is_simplified, is_traditional
 
 
@@ -19,19 +23,47 @@ def clear_screen():
     os.system('cls' if os.name == 'nt' else 'clear')
 
 
+def translate_with_google(text, sl='auto', tl='en'):
+    """
+    Opens Google Translate in the browser with input text.
+    sl: source language (default auto)
+    tl: target language (default english)
+    """
+    # URL encode the text to handle spaces and special characters
+    encoded_text = urllib.parse.quote(text)
+    
+    # Construct the URL
+    url = f"https://translate.google.com/?sl={sl}&tl={tl}&text={encoded_text}&op=translate"
+    
+    # Open in default web browser
+    webbrowser.open(url)
+
+
 class Manager:
 
     PUNCTUATION = '!"#$%&\'()*+,-./:;<=>?@[\\]^_`、﹐{|}~，。！：°（）－．／﹗﹣～﹖；？＂《》「」『』・–—‘’“”•…‧«»%％'
-    SENTENCES_FILE = 'data/sentences_zh.csv'
 
-    def speak(self, s, voice='Meijia'):
+    def speak(self, s, temp=True):
         if not self.muted:
             #system('say -v %s ' % voice + s)
-            if self.lastwritten != s:
-                self.lastwritten = s
-                system('edge-tts --text "%s" --write-media temp.mp3; afplay temp.mp3' % s)
-            else:
-                system('afplay temp.mp3')
+            
+            try:
+                if temp:
+                    if self.temp_sound != s:
+                        system('edge-tts --text "%s" --write-media sounds/temp.mp3; afplay sounds/temp.mp3' % s)
+                        self.temp_sound = s
+                    else:
+                        system('afplay sounds/temp.mp3')
+                else:
+                    file_name = "sounds/%s.mp3" % s
+                    file_path = Path(file_name)
+
+                    if not file_path.exists():
+                        system('edge-tts --text "%s" --write-media %s; afplay %s' % (s, file_name, file_name))
+                    else:
+                        system('afplay %s' % file_name)
+            except:
+                system('say -v Meijia ' + s)
 
     def is_valid_sentence(self, s):
         chars = set(s) - set(self.PUNCTUATION)
@@ -44,18 +76,21 @@ class Manager:
         return True
 
     def __init__(self, profile, mode=TRADITIONAL_MODE, muted=False):
+        self.SENTENCES_FILE = 'sentences/sentences_zh.csv'
+        self.TRANSLATIONS_FILE = 'sentences/translations_zh.csv'
+
         self.mode = mode
         self.muted = muted
-        self.added = []
+        self.new_translations = []
         self.setup_csv(profile)
-        self.read_data()
+        self.read_sentences()
 
         self.quit = False
-        self.lastwritten = ''
+        self.temp_sound = ''
 
     def setup_csv(self, profile):
         Path("./profiles/" + profile).mkdir(parents=True, exist_ok=True)
-        self.file = "./profiles/" + profile + "/vocabulary.csv"
+        self.file = "./profiles/" + profile + "/characters.csv"
         try:
             with open(self.file) as _:
                 pass
@@ -65,7 +100,7 @@ class Manager:
                 writer = csv.writer(csvfile, delimiter='\t', quotechar='|')
                 writer.writerow(['zh', 'eng'])
 
-    def read_data(self):
+    def read_sentences(self):
         self.zh_dict = {}
         self.eng_dict = {}
 
@@ -75,29 +110,46 @@ class Manager:
         with open(self.SENTENCES_FILE, newline='') as csvfile:
             reader = csv.reader(csvfile)
             for row in reader:
-                zh, eng = row
+                zh = row[0]
                 if not self.is_valid_sentence(zh):
                     continue
                 if zh:
-                    self.zh_dict[zh] = eng
-                    self.zh_sentences.append(zh)        
-                if eng:
-                    self.eng_dict[end] = zh
-                    self.eng_sentences.append(eng)
+                    self.zh_sentences.append(zh)
+                    self.zh_dict[zh] = '' 
 
-    def write_data(self, row):
-        with open(self.file, 'a', newline='\n', encoding='utf-8-sig') as csvfile:
-            writer = csv.writer(csvfile, delimiter='\t', quotechar='|')
-            writer.writerow(row)
+        Path(self.TRANSLATIONS_FILE).touch()
+        with open(self.TRANSLATIONS_FILE, newline='') as csvfile:
+            reader = csv.reader(csvfile, delimiter='\t', quotechar='|')
+            for row in reader:
+                eng, zh = row
+                if zh in self.zh_dict:
+                    self.zh_dict[zh] = eng
+
+        for zh, eng in self.zh_dict.items():
+            if eng:
+                print(zh)
+                print(eng)
+                print()
+        input('')
+
+
+
+    def save(self):
+        with open(self.TRANSLATIONS_FILE, 'a', newline='\n') as csvfile:
+            writer = csv.writer(csvfile, delimiter='\t', quotechar='|') 
+            for zh, eng in self.new_translations:
+                if eng:
+                    writer.writerow([eng, zh])
 
     def run(self):
-        self.added = []
+        self.new_translations = []
         while not self.quit:
             try:
                 self.review()
             except KeyboardInterrupt:
                 print()
                 self.quit = True
+        self.save()
         print()
 
     def get_sentence(self):
@@ -109,6 +161,7 @@ class Manager:
             return translation
 
     def add_translation(self, sentence):
+        translate_with_google(sentence, sl='zh', tl='en')
         clear_screen()
         print()
         print(sentence)
@@ -117,12 +170,7 @@ class Manager:
         print()      
         s = input('')
         if s:
-            print()
-            print('add? (y/n)')
-            print()
-            a = input('')
-            if a and a[0] == 'y':
-                self.added = [(sentence, s)]
+            self.new_translations.append((sentence, s))
 
     def matches(self, sentence, received):
         a = tuple(s for s in sentence if s not in self.PUNCTUATION)
@@ -177,7 +225,7 @@ class Manager:
             base = self.extend_base(sentence, base, s)
 
             if self.matches(sentence, s):
-                self.speak(sentence)
+                self.speak(sentence, temp=False)
                 pyperclip.copy(sentence)
                 translation = self.get_translation(sentence)
                 if translation is None:
