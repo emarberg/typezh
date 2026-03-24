@@ -137,7 +137,7 @@ class Manager:
             if not Path(file).exists():
                 continue
             with open(file, newline='') as csvfile:
-                reader = csv.reader(csvfile, delimiter='\t', quotechar='|')
+                reader = csv.reader(csvfile)
                 for row in reader:
                     eng, zh = row
                     if self.is_valid_sentence(zh):
