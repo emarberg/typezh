@@ -53,6 +53,20 @@ class Manager:
 
     PUNCTUATION = '!"#$%&\'()*+,-./:;<=>?@[\\]^_`、﹐{|}~，。！：°（）－．／﹗﹣～﹖；？＂《》「」『』・–—‘’“”•…‧«»%％'
 
+    def __init__(self, profile, mode=TRADITIONAL_MODE, muted=False):
+        self.SENTENCES_FILE = 'sentences/sentences_zh.csv'
+        self.TRANSLATIONS_FILE = 'sentences/translations_zh.csv'
+
+        self.mode = mode
+        self.muted = muted
+        self.profile = profile
+        self.new_translations = []
+        self.setup_csv()
+        self.read_sentences()
+
+        self.quit = False
+        self.temp_sound = ''
+
     def speak(self, s, temp=True):
         if not self.muted:
             #system('say -v %s ' % voice + s)
@@ -85,22 +99,9 @@ class Manager:
             return False
         return True
 
-    def __init__(self, profile, mode=TRADITIONAL_MODE, muted=False):
-        self.SENTENCES_FILE = 'sentences/sentences_zh.csv'
-        self.TRANSLATIONS_FILE = 'sentences/translations_zh.csv'
-
-        self.mode = mode
-        self.muted = muted
-        self.new_translations = []
-        self.setup_csv(profile)
-        self.read_sentences()
-
-        self.quit = False
-        self.temp_sound = ''
-
-    def setup_csv(self, profile):
-        Path("./profiles/" + profile).mkdir(parents=True, exist_ok=True)
-        self.file = "./profiles/" + profile + "/characters.csv"
+    def setup_csv(self):
+        Path("./profiles/" + self.profile).mkdir(parents=True, exist_ok=True)
+        self.file = "./profiles/" + self.profile + "/characters.csv"
         try:
             with open(self.file) as _:
                 pass
@@ -110,31 +111,40 @@ class Manager:
                 writer = csv.writer(csvfile, delimiter='\t', quotechar='|')
                 writer.writerow(['zh', 'eng'])
 
+    def sentence_files(self):
+        yield self.SENTENCES_FILE
+        yield "./profiles/" + self.profile + "/sentences_zh.csv"
+
+    def translation_files(self):
+        yield self.TRANSLATIONS_FILE
+        yield "./profiles/" + self.profile + "/translations_zh.csv"
+
     def read_sentences(self):
         self.zh_dict = {}
-        self.eng_dict = {}
+        self.zh_sentences = set()
 
-        self.zh_sentences = []
-        self.eng_sentences = []
+        for file in self.sentence_files():
+            if not Path(file).exists():
+                continue
+            with open(file, newline='') as csvfile:
+                reader = csv.reader(csvfile)
+                for row in reader:
+                    zh = row[0]
+                    if self.is_valid_sentence(zh):
+                        self.zh_sentences.add(zh)
 
-        with open(self.SENTENCES_FILE, newline='') as csvfile:
-            reader = csv.reader(csvfile)
-            for row in reader:
-                zh = row[0]
-                if not self.is_valid_sentence(zh):
-                    continue
-                if zh:
-                    self.zh_sentences.append(zh)
-                    self.zh_dict[zh] = '' 
+        for file in self.translation_files():
+            if not Path(file).exists():
+                continue
+            with open(file, newline='') as csvfile:
+                reader = csv.reader(csvfile, delimiter='\t', quotechar='|')
+                for row in reader:
+                    eng, zh = row
+                    if self.is_valid_sentence(zh):
+                        self.zh_dict[zh] = eng
+                        self.zh_sentences.add(zh)
 
-        Path(self.TRANSLATIONS_FILE).touch()
-        with open(self.TRANSLATIONS_FILE, newline='') as csvfile:
-            reader = csv.reader(csvfile, delimiter='\t', quotechar='|')
-            for row in reader:
-                eng, zh = row
-                if zh in self.zh_dict:
-                    self.zh_dict[zh] = eng
-
+        self.zh_sentences = list(self.zh_sentences)
         for zh, eng in self.zh_dict.items():
             if eng:
                 print(zh)
@@ -142,11 +152,15 @@ class Manager:
                 print()
         input('')
 
-
-
     def save(self):
-        with open(self.TRANSLATIONS_FILE, 'a', newline='\n') as csvfile:
-            writer = csv.writer(csvfile, delimiter='\t', quotechar='|') 
+        file = "./profiles/" + self.profile + "/translations_zh.csv"
+        try:
+            with open(file) as _:
+                pass
+        except IOError:
+            Path(file).touch()
+        with open(file, 'a', newline='\n') as csvfile:
+            writer = csv.writer(csvfile, delimiter='\t', quotechar='|')
             for zh, eng in self.new_translations:
                 if eng:
                     writer.writerow([eng, zh])
@@ -166,8 +180,7 @@ class Manager:
         return random.choice(self.zh_sentences)
 
     def get_translation(self, sentence):
-        translation = self.zh_dict[sentence]
-        if translation != '':
+        if sentence in self.zh_dict:
             return translation
 
     def add_translation(self, sentence):
@@ -193,6 +206,7 @@ class Manager:
             if confirm != 'y':
                 s = ''
         if s:
+            self.zh_dict[sentence] = s
             self.new_translations.append((sentence, s))
 
     def matches(self, sentence, received):
