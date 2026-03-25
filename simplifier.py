@@ -334,7 +334,6 @@ tsmap = {
     '下': '下',
     '卡': '卡',
     '卓': '卓',
-    'p.': 'p.',
     '朝': '朝',
     '嘲': '嘲',
     '勹': '勹',
@@ -1326,7 +1325,6 @@ tsmap = {
     '孝': '孝',
     '教': '教',
     '者': '者',
-    '著 (v.)': '著 (v.)',
     '豬': '猪',
     '追': '追',
     '官': '官',
@@ -3833,6 +3831,9 @@ tsmap = {
     '獰': '狞',    
 }
 
+TRADSET = set(tsmap.keys())
+SIMPSET = set(tsmap.keys())
+BOTHSET = TRADSET | SIMPSET
 
 reverse_tsmap = defaultdict(list)
 for traditionalkey, simplifiedvalue in tsmap.items():

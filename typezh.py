@@ -6,16 +6,31 @@ from collections import OrderedDict
 import pyperclip
 import random
 import readline
+from datetime import datetime, timezone
 
 import webbrowser
 import urllib.parse
 
-from simplifier import simplify, is_simplified, is_traditional
+from simplifier import simplify, is_simplified, is_traditional, TRADSET, SIMPSET, BOTHSET
 
 
 TRADITIONAL_MODE = 0
 SIMPLIFIED_MODE = 1
 BOTH_MODE = 2
+
+
+def first_ord():
+    return ord('㗎')
+
+
+def last_ord():
+    return ord('龟')
+
+
+def int_today():
+    aware_utc_now = datetime.now(timezone.utc)
+    utc_timestamp = aware_utc_now.timestamp()
+    return int(utc_timestamp / 86400)
 
 
 def clear_screen():
@@ -51,7 +66,7 @@ def systemcall(command):
 
 class Manager:
 
-    PUNCTUATION = '!"#$%&\'()*+,-./:;<=>?@[\\]^_`、﹐{|}~，。！：°（）－．／﹗﹣～﹖；？＂《》「」『』・–—‘’“”•…‧«»%％'
+    PUNCTUATION = '\'-#`•／⋯‘」}{+~；。*@﹐ⵥ°「？→(─—‧_﹣《<]./¨=\\\'！℃&』["!)’－₣>;$・”％♥“☭》,:、）»﹖?﹗＂%，．²·^|：…～（«\\\\–『\''
 
     def __init__(self, profile, mode=TRADITIONAL_MODE, muted=False):
         self.SENTENCES_FILE = 'sentences/sentences_zh.csv'
@@ -61,7 +76,11 @@ class Manager:
         self.muted = muted
         self.profile = profile
         self.new_translations = []
-        self.setup_csv()
+        
+        self.stats = {}
+        self.stats[self.mode] = {int_today(): 0}
+        
+        self.setup_profile()
         self.read_sentences()
 
         self.quit = False
@@ -89,9 +108,19 @@ class Manager:
             except SystemCallError:
                 system('say -v Meijia ' + s)
 
-    def is_valid_sentence(self, s):
+    def has_invalid_chars(self, s):
         chars = set(s) - set(self.PUNCTUATION)
-        if any(ord(c) > ord('龟') for c in chars):
+
+        if any(ord(c) > last_ord() for c in chars):
+            return True
+        if self.char_filter:
+            zh_chars = {c for c in chars if first_ord() <= ord(c) <= last_ord()}
+            if len(zh_chars - self.char_filter) > 0:
+                return True
+        return False
+
+    def is_valid_sentence(self, s):
+        if self.has_invalid_chars(s):
             return False
         if self.mode == TRADITIONAL_MODE and not is_traditional(s):
             return False
@@ -99,17 +128,30 @@ class Manager:
             return False
         return True
 
-    def setup_csv(self):
-        Path("./profiles/" + self.profile).mkdir(parents=True, exist_ok=True)
-        self.file = "./profiles/" + self.profile + "/characters.csv"
-        try:
-            with open(self.file) as _:
-                pass
-        except IOError:
-            Path(self.file).touch()
-            with open(self.file, 'a', newline='\n') as csvfile:
-                writer = csv.writer(csvfile, delimiter='\t', quotechar='|')
-                writer.writerow(['zh', 'eng'])
+    def setup_profile(self):
+        Path('./profiles/' + self.profile).mkdir(parents=True, exist_ok=True)
+        
+        self.charfile = './profiles/' + self.profile + '/characters.txt'
+        Path(self.charfile).touch()
+        with open(self.charfile) as file:
+            file_content = set(file.read().strip())
+            if '*' in file_content or not file_content:
+                self.char_filter = None
+            else:
+                self.char_filter = {c for c in file_content if first_ord() <= ord(c) <= last_ord()}
+
+        self.statsfile = './profiles/' + self.profile + '/statistics.csv'
+        Path(self.statsfile).touch()
+        with open(self.statsfile) as csvfile:
+            reader = csv.reader(csvfile)
+            for row in reader:
+                mode, day, count = list(map(int, row))
+                if mode not in self.stats:
+                    self.stats[mode] = {}
+                if day not in self.stats[mode]:
+                    self.stats[mode][day] = 0
+                self.stats[mode][day] = count
+
 
     def sentence_files(self):
         yield self.SENTENCES_FILE
@@ -145,25 +187,34 @@ class Manager:
                         self.zh_sentences.add(zh)
 
         self.zh_sentences = list(self.zh_sentences)
-        for zh, eng in self.zh_dict.items():
-            if eng:
-                print(zh)
-                print(eng)
-                print()
-        input('')
+        # for zh in self.zh_sentences:
+        #     print(zh)
+        # print()
+        # print(self.char_filter)
+        # input('')
+        # for zh, eng in self.zh_dict.items():
+        #     if eng:
+        #         print(zh)
+        #         print(eng)
+        #         print()
+        # input('')
 
     def save(self):
         file = "./profiles/" + self.profile + "/translations_zh.csv"
-        try:
-            with open(file) as _:
-                pass
-        except IOError:
-            Path(file).touch()
+        Path(file).touch()
         with open(file, 'a', newline='\n') as csvfile:
-            writer = csv.writer(csvfile, delimiter='\t', quotechar='|')
+            writer = csv.writer(csvfile)
             for zh, eng in self.new_translations:
                 if eng:
                     writer.writerow([eng, zh])
+
+        with open(self.statsfile, 'w', newline='\n') as csvfile:
+            writer = csv.writer(csvfile)
+            for mode in sorted(self.stats):
+                for day in sorted(self.stats[mode]):
+                    count = self.stats[mode][day]
+                    writer.writerow([mode, day, count])
+
 
     def run(self):
         self.new_translations = []
@@ -216,6 +267,8 @@ class Manager:
 
     def print_sentence(self, sentence):
         clear_screen()
+        print('reviewable sentences:', len(self.zh_sentences)) 
+        print('reviews today:', self.stats[self.mode].get(int_today(), 0))
         print()
         print(sentence)
         print()
@@ -272,6 +325,9 @@ class Manager:
                     print(translation)
                     print()
                     s = input('')
+
+                today = int_today()
+                self.stats[self.mode][today] = self.stats[self.mode].get(today, 0) + 1
                 break
             else:
                 aloud = True
