@@ -66,7 +66,7 @@ def systemcall(command):
 
 class Manager:
 
-    PUNCTUATION = '\'-#`•／⋯‘」}{+~；。*@﹐ⵥ°「？→(─—‧_﹣《<]./¨=\\\'！℃&』["!)’－₣>;$・”％♥“☭》,:、）»﹖?﹗＂%，．²·^|：…～（«\\\\–『\''
+    PUNCTUATION = '\'-#`•／‘」}{+~；。*@﹐°「？→(─—‧_﹣《<]./¨=\\\'！&』["!)’－₣>;$・”％“》,:、）»﹖?﹗＂%，．·^|：～（«\\\\–『\''
 
     def __init__(self, profile, mode=TRADITIONAL_MODE, muted=False):
         self.SENTENCES_FILE = 'sentences/sentences_zh.csv'
@@ -189,6 +189,10 @@ class Manager:
         self.zh_sentences = list(self.zh_sentences)
         # for zh in self.zh_sentences:
         #     print(zh)
+        #     print(list(zh))
+        #     print([ord(c) for c in zh])
+        #     print(set(zh) - set(self.PUNCTUATION))
+        #     print()
         # print()
         # print(self.char_filter)
         # input('')
@@ -228,6 +232,10 @@ class Manager:
         print()
 
     def get_sentence(self):
+        if len(self.zh_sentences) == 0:
+            print()
+            print('(There are no sentences to review.)')
+            raise KeyboardInterrupt
         return random.choice(self.zh_sentences)
 
     def get_translation(self, sentence):
