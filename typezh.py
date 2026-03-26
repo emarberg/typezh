@@ -2,7 +2,7 @@ import csv
 import os
 from os import system
 from pathlib import Path
-from collections import OrderedDict
+from collections import OrderedDict, Counter
 import pyperclip
 import random
 import readline
@@ -25,6 +25,10 @@ def first_ord():
 
 def last_ord():
     return ord('龟')
+
+
+def is_hanzi(c):
+    return first_ord() <= ord(c) <= last_ord()
 
 
 def int_today():
@@ -108,20 +112,23 @@ class Manager:
             except SystemCallError:
                 system('say -v Meijia ' + s)
 
-    def has_invalid_chars(self, s):
+    def has_unallowed_chars(self, s):
         chars = set(s) - set(self.PUNCTUATION)
-
-        if any(ord(c) > last_ord() for c in chars):
-            return True
         if self.char_filter:
-            zh_chars = {c for c in chars if first_ord() <= ord(c) <= last_ord()}
+            zh_chars = {c for c in chars if is_hanzi(c)}
             if len(zh_chars - self.char_filter) > 0:
                 return True
         return False
 
     def is_valid_sentence(self, s):
-        if self.has_invalid_chars(s):
+        if not any(is_hanzi(c) for c in s):
             return False
+
+        chars = set(s) - set(self.PUNCTUATION)
+
+        if any(ord(c) > last_ord() for c in chars):
+            return False
+
         if self.mode == TRADITIONAL_MODE and not is_traditional(s):
             return False
         if self.mode == SIMPLIFIED_MODE and not is_simplified(s):
@@ -138,7 +145,7 @@ class Manager:
             if '*' in file_content or not file_content:
                 self.char_filter = None
             else:
-                self.char_filter = {c for c in file_content if first_ord() <= ord(c) <= last_ord()}
+                self.char_filter = {c for c in file_content if is_hanzi(c)}
 
         self.statsfile = './profiles/' + self.profile + '/statistics.csv'
         Path(self.statsfile).touch()
@@ -152,6 +159,16 @@ class Manager:
                     self.stats[mode][day] = 0
                 self.stats[mode][day] = count
 
+    def update_char_filter(self):
+        if self.char_filter is not None:
+            addable = sorted([c for c in self.counter if c not in self.char_filter], key=lambda x: -self.counter[x])
+            addable = ' '.join(addable[:20])
+            pyperclip.copy(addable)
+            print(addable)
+            print()
+            s = input('allow more characters: ')
+            self.char_filter |= {c for c in s if is_hanzi(c)}
+            self.update_sentences()
 
     def sentence_files(self):
         yield self.SENTENCES_FILE
@@ -161,9 +178,12 @@ class Manager:
         yield self.TRANSLATIONS_FILE
         yield "./profiles/" + self.profile + "/translations_zh.csv"
 
+    def update_sentences(self):
+        self.zh_sentences = [s for s in self.all_sentences if not self.has_unallowed_chars(s)]
+        
     def read_sentences(self):
         self.zh_dict = {}
-        self.zh_sentences = set()
+        self.all_sentences = set()
 
         for file in self.sentence_files():
             if not Path(file).exists():
@@ -173,7 +193,7 @@ class Manager:
                 for row in reader:
                     zh = row[0]
                     if self.is_valid_sentence(zh):
-                        self.zh_sentences.add(zh)
+                        self.all_sentences.add(zh)
 
         for file in self.translation_files():
             if not Path(file).exists():
@@ -184,15 +204,14 @@ class Manager:
                     eng, zh = row
                     if self.is_valid_sentence(zh):
                         self.zh_dict[zh] = eng
-                        self.zh_sentences.add(zh)
+                        self.all_sentences.add(zh)
+        
+        self.counter = Counter([c for s in self.all_sentences for c in s if is_hanzi(c)])
+        self.update_sentences()
 
-        self.zh_sentences = list(self.zh_sentences)
         # for zh in self.zh_sentences:
-        #     print(zh)
-        #     print(list(zh))
-        #     print([ord(c) for c in zh])
-        #     print(set(zh) - set(self.PUNCTUATION))
-        #     print()
+        #      print(zh)
+        #      print()
         # print()
         # print(self.char_filter)
         # input('')
@@ -240,13 +259,10 @@ class Manager:
 
     def get_translation(self, sentence):
         if sentence in self.zh_dict:
-            return translation
+            return self.zh_dict[sentence]
 
     def add_translation(self, sentence):
-        clear_screen()
-        print()
-        print(sentence)
-        print()
+        self.print_sentence(sentence)
         print('add a translation / press enter to open Google translate')
         print()      
         s = input('')
@@ -275,8 +291,10 @@ class Manager:
 
     def print_sentence(self, sentence):
         clear_screen()
-        print('reviewable sentences:', len(self.zh_sentences)) 
-        print('reviews today:', self.stats[self.mode].get(int_today(), 0))
+        print(' reviewable sentences:', len(self.zh_sentences)) 
+        print('reviewable characters:', '(all)' if self.char_filter is None else len(self.char_filter))
+        print()
+        print('        reviews today:', self.stats[self.mode].get(int_today(), 0))
         print()
         print(sentence)
         print()
@@ -312,6 +330,10 @@ class Manager:
                 self.quit = True
                 break
             
+            if s == 'chars':
+                self.update_char_filter()
+                break
+
             if s == 'skip':
                 break
             
@@ -329,7 +351,7 @@ class Manager:
                 if translation is None:
                     self.add_translation(sentence)
                 else:
-                    print()
+                    self.print_sentence(sentence)
                     print(translation)
                     print()
                     s = input('')
