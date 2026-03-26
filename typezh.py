@@ -161,14 +161,30 @@ class Manager:
 
     def update_char_filter(self):
         if self.char_filter is not None:
+            clear_screen()
+            delta = 20
             addable = sorted([c for c in self.counter if c not in self.char_filter], key=lambda x: -self.counter[x])
-            addable = ' '.join(addable[:20])
+            addable = ''.join(addable[:delta])
             pyperclip.copy(addable)
-            print(addable)
             print()
-            s = input('allow more characters: ')
-            self.char_filter |= {c for c in s if is_hanzi(c)}
-            self.update_sentences()
+            print('next %s most common characters:' % delta)
+            print()
+            print(' ', addable)
+            print()
+            print('enter additional characters to review:')
+            print()
+            s = input('  ')
+            s = {c for c in s if is_hanzi(c)} - self.char_filter
+            if s:
+                a = len(self.zh_sentences)
+                b = len(self.char_filter)
+                self.char_filter |= s
+                self.update_sentences()
+                print()
+                print('reviewable characters:', b, '->', len(self.char_filter))
+                print(' reviewable sentences:', a, '->', len(self.zh_sentences)) 
+                print()
+                input('')
 
     def sentence_files(self):
         yield self.SENTENCES_FILE
@@ -238,6 +254,17 @@ class Manager:
                     count = self.stats[mode][day]
                     writer.writerow([mode, day, count])
 
+        with open(self.charfile, 'w', newline='\n') as file:
+            if self.char_filter is None:
+                file.write('*')
+            else:
+                chars = sorted(self.char_filter, key=lambda x: -self.counter[x])
+                delta = 18
+                for i in range(0, len(chars), delta):
+                    file.write(''.join(chars[i:i + delta]) + '\n')
+
+        clear_screen()
+
 
     def run(self):
         self.new_translations = []
@@ -262,20 +289,16 @@ class Manager:
             return self.zh_dict[sentence]
 
     def add_translation(self, sentence):
-        self.print_sentence(sentence)
-        print('add a translation / press enter to open Google translate')
+        print()
+        print('add translation / press enter to use Google')
         print()      
-        s = input('')
+        s = input('  ')
+        if s == 'skip':
+            return
         if s == '':
             translate_with_google(sentence, sl='zh', tl='en')
-            clear_screen()
-            print()
-            print(sentence)
-            print()
-            print('add a translation:')
-            print()
-            s = input('')
-        else:
+            s = input('  ').strip()
+        if s:
             print()
             confirm = input('confirm add [y/n]: ')
             if confirm != 'y':
@@ -284,19 +307,34 @@ class Manager:
             self.zh_dict[sentence] = s
             self.new_translations.append((sentence, s))
 
+    def update_translations(self, sentence):
+        self.speak(sentence, temp=False)
+        pyperclip.copy(sentence)
+        translation = self.get_translation(sentence)
+        if translation is None:
+            self.add_translation(sentence)
+        else:
+            print()
+            print(translation)
+            print()
+            s = input('  ')
+
+        today = int_today()
+        self.stats[self.mode][today] = self.stats[self.mode].get(today, 0) + 1
+        
     def matches(self, sentence, received):
         a = tuple(s for s in sentence if s not in self.PUNCTUATION)
         b = tuple(s for s in received if s not in self.PUNCTUATION)
         return a == b
 
     def print_sentence(self, sentence):
+        rnum = self.stats[self.mode].get(int_today(), 0)
+        rnum_str = '(%s)' % (rnum + 1)
         clear_screen()
-        print(' reviewable sentences:', len(self.zh_sentences)) 
-        print('reviewable characters:', '(all)' if self.char_filter is None else len(self.char_filter))
         print()
-        print('        reviews today:', self.stats[self.mode].get(int_today(), 0))
+        print(rnum_str)
         print()
-        print(sentence)
+        print(' ', sentence)
         print()
 
     def extend_match(self, sentence, base, s):
@@ -319,7 +357,7 @@ class Manager:
         while True:
             pyperclip.copy(sentence[len(base):len(base) + 1])
             self.print_sentence(sentence)
-            print(base, end='')
+            print(' ', base, end='')
 
             if aloud:
                 self.speak(sentence[len(base):])
@@ -331,8 +369,11 @@ class Manager:
                 break
             
             if s == 'chars':
-                self.update_char_filter()
-                break
+                if self.char_filter is None:
+                    continue
+                else:
+                    self.update_char_filter()
+                    break
 
             if s == 'skip':
                 break
@@ -345,19 +386,7 @@ class Manager:
             base = self.extend_match(sentence, base, s)
 
             if self.matches(sentence, s):
-                self.speak(sentence, temp=False)
-                pyperclip.copy(sentence)
-                translation = self.get_translation(sentence)
-                if translation is None:
-                    self.add_translation(sentence)
-                else:
-                    self.print_sentence(sentence)
-                    print(translation)
-                    print()
-                    s = input('')
-
-                today = int_today()
-                self.stats[self.mode][today] = self.stats[self.mode].get(today, 0) + 1
+                self.update_translations(sentence)
                 break
             else:
                 aloud = True
