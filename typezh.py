@@ -13,10 +13,12 @@ import urllib.parse
 
 from simplifier import simplify, is_simplified, is_traditional, TRADSET, SIMPSET, BOTHSET
 
-
 TRADITIONAL_MODE = 0
 SIMPLIFIED_MODE = 1
 BOTH_MODE = 2
+INVISIBLE_TRADITIONAL_MODE = 3
+INVISIBLE_SIMPLIFIED_MODE = 4
+INVISIBLE_BOTH_MODE = 5
 
 
 def first_ord():
@@ -71,21 +73,21 @@ def systemcall(command):
 class Manager:
 
     PUNCTUATION = '\'-#`•／‘」}{+~；。*@﹐°「？→(─—‧_﹣《<]./¨=\\\'！&』["!)’－₣>;$・”％“》,:、）»﹖?﹗＂%，．·^|：～（«\\\\–『\''
+    SENTENCES_FILE = 'sentences/sentences_zh.csv'
+    TRANSLATIONS_FILE = 'sentences/translations_zh.csv'
 
-    def __init__(self, profile, mode=TRADITIONAL_MODE, muted=False):
-        self.SENTENCES_FILE = 'sentences/sentences_zh.csv'
-        self.TRANSLATIONS_FILE = 'sentences/translations_zh.csv'
-
+    def __init__(self, profile, mode, custom_input=None):
         self.mode = mode
-        self.muted = muted
+        self.muted = False
         self.profile = profile
         self.new_translations = []
         
         self.stats = {}
         self.stats[self.mode] = {int_today(): 0}
         
-        self.setup_profile()
-        self.read_sentences()
+        self.index = None if custom_input is None else 0
+        self.setup_profile(custom_input)
+        self.read_sentences(custom_input)
 
         self.quit = False
         self.temp_sound = ''
@@ -126,26 +128,35 @@ class Manager:
 
         chars = set(s) - set(self.PUNCTUATION)
 
-        if any(ord(c) > last_ord() for c in chars):
+        if any(ord('a') <= ord(c) <= ord('z') or ord('A') <= ord(c) <= ord('Z') or ord(c) > last_ord() for c in chars):
             return False
 
-        if self.mode == TRADITIONAL_MODE and not is_traditional(s):
+        if self.ịn_traditional_mode() and not is_traditional(s):
             return False
-        if self.mode == SIMPLIFIED_MODE and not is_simplified(s):
+        if self.in_simplifed_mode() and not is_simplified(s):
             return False
         return True
 
-    def setup_profile(self):
+    def in_traditional_mode(self):
+        return self.mode in [TRADITIONAL_MODE, INVISIBLE_TRADITIONAL_MODE]
+
+    def in_simplified_mode(self):
+        return self.mode in [SIMPLIFIED_MODE, INVISIBLE_SIMPLIFIED_MODE]
+
+    def setup_profile(self, custom_input):
         Path('./profiles/' + self.profile).mkdir(parents=True, exist_ok=True)
         
-        self.charfile = './profiles/' + self.profile + '/characters.txt'
-        Path(self.charfile).touch()
-        with open(self.charfile) as file:
-            file_content = set(file.read().strip())
-            if '*' in file_content or not file_content:
-                self.char_filter = None
-            else:
-                self.char_filter = {c for c in file_content if is_hanzi(c)}
+        if custom_input is not None:
+            self.char_filter = None
+        else:
+            self.charfile = './profiles/' + self.profile + '/characters.txt'
+            Path(self.charfile).touch()
+            with open(self.charfile) as file:
+                file_content = set(file.read().strip())
+                if '*' in file_content or not file_content:
+                    self.char_filter = None
+                else:
+                    self.char_filter = {c for c in file_content if is_hanzi(c)}
 
         self.statsfile = './profiles/' + self.profile + '/statistics.csv'
         Path(self.statsfile).touch()
@@ -161,7 +172,12 @@ class Manager:
 
     def update_char_filter(self):
         if self.char_filter is not None:
+            a = len(self.zh_sentences)
+            b = len(self.char_filter)
             clear_screen()
+            print()
+            print('reviewable characters:', b)
+            print('reviewable sentences :', a) 
             delta = 20
             addable = sorted([c for c in self.counter if c not in self.char_filter], key=lambda x: -self.counter[x])
             addable = ''.join(addable[:delta])
@@ -176,13 +192,11 @@ class Manager:
             s = input('  ')
             s = {c for c in s if is_hanzi(c)} - self.char_filter
             if s:
-                a = len(self.zh_sentences)
-                b = len(self.char_filter)
                 self.char_filter |= s
                 self.update_sentences()
                 print()
                 print('reviewable characters:', b, '->', len(self.char_filter))
-                print(' reviewable sentences:', a, '->', len(self.zh_sentences)) 
+                print('reviewable sentences :', a, '->', len(self.zh_sentences)) 
                 print()
                 input('')
 
@@ -197,19 +211,9 @@ class Manager:
     def update_sentences(self):
         self.zh_sentences = [s for s in self.all_sentences if not self.has_unallowed_chars(s)]
         
-    def read_sentences(self):
+    def read_sentences(self, custom_input):
         self.zh_dict = {}
         self.all_sentences = set()
-
-        for file in self.sentence_files():
-            if not Path(file).exists():
-                continue
-            with open(file, newline='') as csvfile:
-                reader = csv.reader(csvfile)
-                for row in reader:
-                    zh = row[0]
-                    if self.is_valid_sentence(zh):
-                        self.all_sentences.add(zh)
 
         for file in self.translation_files():
             if not Path(file).exists():
@@ -218,16 +222,31 @@ class Manager:
                 reader = csv.reader(csvfile)
                 for row in reader:
                     eng, zh = row
-                    if self.is_valid_sentence(zh):
-                        self.zh_dict[zh] = eng
-                        self.all_sentences.add(zh)
-        
-        self.counter = Counter([c for s in self.all_sentences for c in s if is_hanzi(c)])
-        self.update_sentences()
+                    self.zh_dict[zh] = eng
+                    
+        if custom_input is not None:
+            with open(custom_input) as file:
+                lines = file.read().split('\n')
+                lines = [l.strip() for l in lines]
+                self.zh_sentences = [l for l in lines if l]
 
-        # for zh in self.zh_sentences:
-        #      print(zh)
-        #      print()
+        else:
+            for file in self.sentence_files():
+                if not Path(file).exists():
+                    continue
+                with open(file, newline='') as csvfile:
+                    reader = csv.reader(csvfile)
+                    for row in reader:
+                        zh = row[0]
+                        if self.is_valid_sentence(zh):
+                            self.all_sentences.add(zh)
+            
+            self.counter = Counter([c for s in self.all_sentences for c in s if is_hanzi(c)])
+            self.update_sentences()
+
+        for zh in self.zh_sentences:
+            print(zh)
+            print()
         # print()
         # print(self.char_filter)
         # input('')
@@ -236,7 +255,7 @@ class Manager:
         #         print(zh)
         #         print(eng)
         #         print()
-        # input('')
+        input('')
 
     def save(self):
         file = "./profiles/" + self.profile + "/translations_zh.csv"
@@ -254,10 +273,8 @@ class Manager:
                     count = self.stats[mode][day]
                     writer.writerow([mode, day, count])
 
-        with open(self.charfile, 'w', newline='\n') as file:
-            if self.char_filter is None:
-                file.write('*')
-            else:
+        if self.char_filter is not None:
+            with open(self.charfile, 'w', newline='\n') as file:
                 chars = sorted(self.char_filter, key=lambda x: -self.counter[x])
                 delta = 18
                 for i in range(0, len(chars), delta):
@@ -278,11 +295,15 @@ class Manager:
         print()
 
     def get_sentence(self):
-        if len(self.zh_sentences) == 0:
+        if (self.index is None and len(self.zh_sentences) == 0) or (self.index is not None and self.index >= len(self.zh_sentences)):
             print()
             print('(There are no sentences to review.)')
             raise KeyboardInterrupt
-        return random.choice(self.zh_sentences)
+        elif self.index is None:
+            return random.choice(self.zh_sentences)
+        else:
+            self.index += 1
+            return self.zh_sentences[self.index - 1]
 
     def get_translation(self, sentence):
         if sentence in self.zh_dict:
@@ -300,8 +321,8 @@ class Manager:
             s = input('  ').strip()
         if s:
             print()
-            confirm = input('confirm add [y/n]: ')
-            if confirm != 'y':
+            confirm = input('press enter to add or any key to skip: ')
+            if confirm != '':
                 s = ''
         if s:
             self.zh_dict[sentence] = s
@@ -327,12 +348,18 @@ class Manager:
         b = tuple(s for s in received if s not in self.PUNCTUATION)
         return a == b
 
-    def print_sentence(self, sentence):
+    def is_invisible(self):
+        return self.mode in [INVISIBLE_TRADITIONAL_MODE, INVISIBLE_BOTH_MODE, INVISIBLE_SIMPLIFIED_MODE]
+
+    def print_sentence(self, sentence, invisible):
+        if invisible:
+            sentence = ''.join(['一' if is_hanzi(c) else c for c in sentence])
+
         rnum = self.stats[self.mode].get(int_today(), 0)
         rnum_str = '(%s)' % (rnum + 1)
         clear_screen()
         print()
-        print(rnum_str)
+        print('sentence', rnum_str)
         print()
         print(' ', sentence)
         print()
@@ -343,20 +370,23 @@ class Manager:
             if i >= len(sentence):
                 break
             a, b = s[i], sentence[i]
-            if (a == b) or (a in self.PUNCTUATION and b in self.PUNCTUATION):
+
+            invisible_exception = self.is_invisible() and {a, b}.issubset({'她', '他'})
+            
+            if (a == b) or (a in self.PUNCTUATION and b in self.PUNCTUATION) or invisible_exception:
                 base += b
             else:
                 break
         return base
 
     def review(self):
-        aloud = False
+        aloud = self.is_invisible()
         sentence = self.get_sentence()
 
         base = ''
         while True:
             pyperclip.copy(sentence[len(base):len(base) + 1])
-            self.print_sentence(sentence)
+            self.print_sentence(sentence, self.is_invisible())
             print(' ', base, end='')
 
             if aloud:
@@ -368,6 +398,13 @@ class Manager:
                 self.quit = True
                 break
             
+            if s == 'reveal':
+                self.print_sentence(sentence, False)
+                self.speak(sentence, temp=False)
+                pyperclip.copy(sentence)
+                input('press enter to continue')
+                break
+
             if s == 'chars':
                 if self.char_filter is None:
                     continue
@@ -393,7 +430,7 @@ class Manager:
 
 
 def main():
-    manager = Manager('default')
+    manager = Manager('default', TRADITIONAL_MODE, 'mindiworldnews/20260324.txt')
     manager.run()
 
 
