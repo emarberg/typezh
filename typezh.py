@@ -20,18 +20,29 @@ from simplifier import (
     BOTHSET
 )
 
-# text-to-text
+# zh-to-zh
 TRADITIONAL_MODE = 0
 SIMPLIFIED_MODE = 1
 BOTH_MODE = 2
 
-# sound-to-text
+# sound-to-zh
 INVISIBLE_TRADITIONAL_MODE = 3
 INVISIBLE_SIMPLIFIED_MODE = 4
 INVISIBLE_BOTH_MODE = 5
 
-# meaning-to-text
+# sequential-text-to-text
 # TODO
+
+# sequential-sound-to-text
+# TODO 
+
+# meaning-to-zh
+# TODO
+
+# meaning-to-yue
+# TODO
+
+
 
 
 def first_ord():
@@ -429,6 +440,7 @@ class Manager:
                         print()
                         input('(press enter to continue)')
                         sentence = self.get_sentence()
+                aloud = False
                 continue
             
             if s == 'reveal':
@@ -439,10 +451,12 @@ class Manager:
                     input('(press enter to continue)')
                     break
                 else:
+                    aloud = False
                     continue
 
             if s == 'chars':
                 if self.char_filter is None:
+                    aloud = False
                     continue
                 else:
                     self.update_char_filter()
