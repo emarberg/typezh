@@ -11,14 +11,27 @@ from datetime import datetime, timezone
 import webbrowser
 import urllib.parse
 
-from simplifier import simplify, is_simplified, is_traditional, TRADSET, SIMPSET, BOTHSET
+from simplifier import (
+    simplify, 
+    is_simplified, 
+    is_traditional, 
+    TRADSET, 
+    SIMPSET, 
+    BOTHSET
+)
 
+# text-to-text
 TRADITIONAL_MODE = 0
 SIMPLIFIED_MODE = 1
 BOTH_MODE = 2
+
+# sound-to-text
 INVISIBLE_TRADITIONAL_MODE = 3
 INVISIBLE_SIMPLIFIED_MODE = 4
 INVISIBLE_BOTH_MODE = 5
+
+# meaning-to-text
+# TODO
 
 
 def first_ord():
@@ -72,7 +85,7 @@ def systemcall(command):
 
 class Manager:
 
-    PUNCTUATION = '\'-#`•／‘」}{+~；。*@﹐°「？→(─—‧_﹣《<]./¨=\\\'！&』["!)’－₣>;$・”％“》,:、）»﹖?﹗＂%，．·^|：～（«\\\\–『\''
+    PUNCTUATION = '\'-#`•／‘」}{+~；。*@﹐°「？→(─—‧_﹣《<]./¨=\\\'！&』["!)’－₣>;$・”％“》〉〈,:、）»﹖?﹗＂%，．·^|：～（«\\\\–『\' 【】'
     SENTENCES_FILE = 'sentences/sentences_zh.csv'
     TRANSLATIONS_FILE = 'sentences/translations_zh.csv'
 
@@ -94,15 +107,13 @@ class Manager:
 
     def speak(self, s, temp=True):
         if not self.muted:
-            #system('say -v %s ' % voice + s)
-            
             try:
                 if temp:
                     if self.temp_sound != s:
                         systemcall('edge-tts --text "%s" --write-media sounds/temp.mp3 >/dev/null 2>&1; afplay sounds/temp.mp3 >/dev/null 2>&1' % s)
                         self.temp_sound = s
                     else:
-                        system('afplay sounds/temp.mp3')
+                        system('afplay sounds/temp.mp3 >/dev/null 2>&1')
                 else:
                     file_name = "sounds/%s.mp3" % s
                     file_path = Path(file_name)
@@ -110,7 +121,7 @@ class Manager:
                     if not file_path.exists():
                         systemcall('edge-tts --text "%s" --write-media %s >/dev/null 2>&1; afplay %s >/dev/null 2>&1' % (s, file_name, file_name))
                     else:
-                        system('afplay %s' % file_name)
+                        system('afplay %s >/dev/null 2>&1' % file_name)
             except SystemCallError:
                 system('say -v Meijia ' + s)
 
@@ -136,6 +147,9 @@ class Manager:
         if self.in_simplifed_mode() and not is_simplified(s):
             return False
         return True
+
+    def in_sequential_mode(self):
+        return self.index is not None
 
     def in_traditional_mode(self):
         return self.mode in [TRADITIONAL_MODE, INVISIBLE_TRADITIONAL_MODE]
@@ -244,9 +258,9 @@ class Manager:
             self.counter = Counter([c for s in self.all_sentences for c in s if is_hanzi(c)])
             self.update_sentences()
 
-        for zh in self.zh_sentences:
-            print(zh)
-            print()
+        #for zh in self.zh_sentences:
+        #    print(zh)
+        #    print()
         # print()
         # print(self.char_filter)
         # input('')
@@ -255,7 +269,7 @@ class Manager:
         #         print(zh)
         #         print(eng)
         #         print()
-        input('')
+        #input('')
 
     def save(self):
         file = "./profiles/" + self.profile + "/translations_zh.csv"
@@ -280,18 +294,15 @@ class Manager:
                 for i in range(0, len(chars), delta):
                     file.write(''.join(chars[i:i + delta]) + '\n')
 
-        clear_screen()
-
-
     def run(self):
         self.new_translations = []
         while not self.quit:
             try:
                 self.review()
             except KeyboardInterrupt:
-                print()
                 self.quit = True
         self.save()
+        clear_screen()
         print()
 
     def get_sentence(self):
@@ -313,17 +324,17 @@ class Manager:
         print()
         print('add translation / press enter to use Google')
         print()      
-        s = input('  ')
+        s = input('  ').strip()
         if s == 'skip':
             return
         if s == '':
             translate_with_google(sentence, sl='zh', tl='en')
             s = input('  ').strip()
-        if s:
-            print()
-            confirm = input('press enter to add or any key to skip: ')
-            if confirm != '':
-                s = ''
+        #if s:
+        #    print()
+        #    confirm = input('press enter to add or any key to skip: ')
+        #    if confirm != '':
+        #        s = ''
         if s:
             self.zh_dict[sentence] = s
             self.new_translations.append((sentence, s))
@@ -355,8 +366,12 @@ class Manager:
         if invisible:
             sentence = ''.join(['一' if is_hanzi(c) else c for c in sentence])
 
-        rnum = self.stats[self.mode].get(int_today(), 0)
-        rnum_str = '(%s)' % (rnum + 1)
+        if self.in_sequential_mode():
+            rnum_str = '(%s) of (%s)' % (self.index, len(self.zh_sentences))
+        else:
+            rnum = self.stats[self.mode].get(int_today(), 0)
+            rnum_str = '(%s)' % (rnum + 1)
+
         clear_screen()
         print()
         print('sentence', rnum_str)
@@ -397,13 +412,34 @@ class Manager:
             if s == 'q' or s == 'quit':
                 self.quit = True
                 break
+
+            if s == 'jump':
+                if self.in_sequential_mode():
+                    clear_screen()
+                    print()
+                    print('translated document:')
+                    while True:
+                        translate = self.get_translation(sentence)
+                        if translate is None:
+                            break
+                        print()
+                        print(' ', sentence)
+                        print()
+                        print(' ', translate)
+                        print()
+                        input('(press enter to continue)')
+                        sentence = self.get_sentence()
+                continue
             
             if s == 'reveal':
-                self.print_sentence(sentence, False)
-                self.speak(sentence, temp=False)
-                pyperclip.copy(sentence)
-                input('press enter to continue')
-                break
+                if self.is_invisible():
+                    self.print_sentence(sentence, False)
+                    self.speak(sentence, temp=False)
+                    pyperclip.copy(sentence)
+                    input('(press enter to continue)')
+                    break
+                else:
+                    continue
 
             if s == 'chars':
                 if self.char_filter is None:
