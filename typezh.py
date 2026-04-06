@@ -153,9 +153,9 @@ class Manager:
         if any(ord('a') <= ord(c) <= ord('z') or ord('A') <= ord(c) <= ord('Z') or ord(c) > last_ord() for c in chars):
             return False
 
-        if self.ịn_traditional_mode() and not is_traditional(s):
+        if self.in_traditional_mode() and not is_traditional(s):
             return False
-        if self.in_simplifed_mode() and not is_simplified(s):
+        if self.in_simplified_mode() and not is_simplified(s):
             return False
         return True
 
@@ -319,7 +319,7 @@ class Manager:
     def get_sentence(self):
         if (self.index is None and len(self.zh_sentences) == 0) or (self.index is not None and self.index >= len(self.zh_sentences)):
             print()
-            print('(There are no sentences to review.)')
+            print('(there are no sentences to review)')
             raise KeyboardInterrupt
         elif self.index is None:
             return random.choice(self.zh_sentences)
@@ -333,7 +333,7 @@ class Manager:
 
     def add_translation(self, sentence):
         print()
-        print('add translation / press enter to use Google')
+        print('add translation / press enter to look up')
         print()      
         s = input('  ').strip()
         if s == 'skip':
@@ -373,19 +373,36 @@ class Manager:
     def is_invisible(self):
         return self.mode in [INVISIBLE_TRADITIONAL_MODE, INVISIBLE_BOTH_MODE, INVISIBLE_SIMPLIFIED_MODE]
 
+    def get_stats_today(self):
+        return self.stats[self.mode].get(int_today(), 0)
+
+    def get_stats_week(self):
+        a = int_today()
+        ans = 0
+        for i in range(7):
+            ans += self.stats[self.mode].get(a - i, 0)
+        return ans
+
+    def get_stats_total(self):
+        ans = 0
+        for dates in self.stats[self.mode]:
+            ans += self.stats[self.mode][dates]
+        return ans
+
     def print_sentence(self, sentence, invisible):
         if invisible:
             sentence = ''.join(['一' if is_hanzi(c) else c for c in sentence])
 
         if self.in_sequential_mode():
-            rnum_str = '(%s) of (%s)' % (self.index, len(self.zh_sentences))
+            rnum_str = 'sentence # %s / %s' % (self.index, len(self.zh_sentences))
         else:
-            rnum = self.stats[self.mode].get(int_today(), 0)
-            rnum_str = '(%s)' % (rnum + 1)
+            a = self.get_stats_today()
+            b = self.get_stats_week()
+            rnum_str = 'reviews: %s (today), %s (weekly average)' % (a + 1, round((b + 1) / 7.0, 1))
 
         clear_screen()
         print()
-        print('sentence', rnum_str)
+        print(rnum_str)
         print()
         print(' ', sentence)
         print()
@@ -480,7 +497,7 @@ class Manager:
 
 
 def main():
-    manager = Manager('default', TRADITIONAL_MODE, 'mindiworldnews/20260324.txt')
+    manager = Manager('default', TRADITIONAL_MODE)#, TRADITIONAL_MODE, 'mindiworldnews/20260324.txt')
     manager.run()
 
 
