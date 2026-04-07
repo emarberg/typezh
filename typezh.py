@@ -23,12 +23,10 @@ from simplifier import (
 # zh-to-zh
 TRADITIONAL_MODE = 0
 SIMPLIFIED_MODE = 1
-BOTH_MODE = 2
 
 # sound-to-zh
 INVISIBLE_TRADITIONAL_MODE = 3
 INVISIBLE_SIMPLIFIED_MODE = 4
-INVISIBLE_BOTH_MODE = 5
 
 # sequential-text-to-text
 # TODO
@@ -161,6 +159,9 @@ class Manager:
 
     def in_sequential_mode(self):
         return self.index is not None
+
+    def in_cantonese_mode(self):
+        return False
 
     def in_traditional_mode(self):
         return self.mode in [TRADITIONAL_MODE, INVISIBLE_TRADITIONAL_MODE]
@@ -332,14 +333,16 @@ class Manager:
             return self.zh_dict[sentence]
 
     def add_translation(self, sentence):
-        print()
-        print('add translation / press enter to look up')
+        print('add translation / type lookup / press enter to skip')
         print()      
         s = input('  ').strip()
-        if s == 'skip':
-            return
         if s == '':
+            return
+        if s == 'lookup':
             translate_with_google(sentence, sl='zh', tl='en')
+            self.print_sentence(sentence, False)
+            print('add translation / press enter to skip')
+            print()  
             s = input('  ').strip()
         #if s:
         #    print()
@@ -351,6 +354,7 @@ class Manager:
             self.new_translations.append((sentence, s))
 
     def update_translations(self, sentence):
+        self.print_sentence(sentence, False)
         self.speak(sentence, temp=False)
         pyperclip.copy(sentence)
         translation = self.get_translation(sentence)
@@ -371,7 +375,7 @@ class Manager:
         return a == b
 
     def is_invisible(self):
-        return self.mode in [INVISIBLE_TRADITIONAL_MODE, INVISIBLE_BOTH_MODE, INVISIBLE_SIMPLIFIED_MODE]
+        return self.mode in [INVISIBLE_TRADITIONAL_MODE, INVISIBLE_SIMPLIFIED_MODE]
 
     def get_stats_today(self):
         return self.stats[self.mode].get(int_today(), 0)
@@ -389,38 +393,57 @@ class Manager:
             ans += self.stats[self.mode][dates]
         return ans
 
-    def print_sentence(self, sentence, invisible):
+    def mode_str(self):
+        if self.in_cantonese_mode():
+            return '[粵]'
+        elif self.in_simplified_mode():
+            return '[简体]'
+        elif self.in_traditional_mode():
+            return '[繁體]'
+        else:
+            raise Exception
+
+    def print_sentence(self, sentence, invisible, base=''):
         if invisible:
-            sentence = ''.join(['一' if is_hanzi(c) else c for c in sentence])
+            sentence = sentence[:len(base)] + ''.join(['一' if is_hanzi(c) else c for c in sentence[len(base):]])
 
         if self.in_sequential_mode():
             rnum_str = 'sentence # %s / %s' % (self.index, len(self.zh_sentences))
         else:
             a = self.get_stats_today()
             b = self.get_stats_week()
-            rnum_str = 'reviews: %s (today), %s (weekly average)' % (a + 1, round((b + 1) / 7.0, 1))
+            rnum_str = 'reviews: %s (today), %s (weekly average)' % (a + 1, round((b + 1) / 7.0, 2))
 
         clear_screen()
         print()
-        print(rnum_str)
+        print(self.mode_str(), rnum_str)
         print()
         print(' ', sentence)
         print()
 
     def extend_match(self, sentence, base, s):
         ell = len(base)
-        for i in range(ell, len(s)):
-            if i >= len(sentence):
-                break
-            a, b = s[i], sentence[i]
+        end = ell
+        
+        q1 = [a for a in s if a not in self.PUNCTUATION]
+        q2 = [(i + 1, sentence[i]) for i in range(ell, len(sentence)) if sentence[i] not in self.PUNCTUATION]
+
+        while q1 and q2:
+            i, a = q2[0]
+            b = q1[0]
 
             invisible_exception = self.is_invisible() and {a, b}.issubset({'她', '他'})
-            
-            if (a == b) or (a in self.PUNCTUATION and b in self.PUNCTUATION) or invisible_exception:
-                base += b
+            if a == b or invisible_exception:
+                end = i
+                q1 = q1[1:]
+                q2 = q2[1:]
             else:
                 break
-        return base
+
+        if len(q1) == 0 and len(q2) == 0:
+            return sentence
+        else:
+            return sentence[:end]
 
     def review(self):
         aloud = self.is_invisible()
@@ -429,13 +452,12 @@ class Manager:
         base = ''
         while True:
             pyperclip.copy(sentence[len(base):len(base) + 1])
-            self.print_sentence(sentence, self.is_invisible())
-            print(' ', base, end='')
-
+            self.print_sentence(sentence, self.is_invisible(), base)
+            
             if aloud:
                 self.speak(sentence[len(base):])
             
-            s = input()
+            s = input('  ' + base)
 
             if s == 'q' or s == 'quit':
                 self.quit = True
@@ -486,10 +508,9 @@ class Manager:
                 aloud = True
                 continue
                         
-            s = base + s
             base = self.extend_match(sentence, base, s)
 
-            if self.matches(sentence, s):
+            if self.matches(sentence, base):
                 self.update_translations(sentence)
                 break
             else:
@@ -497,7 +518,7 @@ class Manager:
 
 
 def main():
-    manager = Manager('default', TRADITIONAL_MODE)#, TRADITIONAL_MODE, 'mindiworldnews/20260324.txt')
+    manager = Manager('default', TRADITIONAL_MODE)#, 'mindiworldnews/20260324.txt')
     manager.run()
 
 
