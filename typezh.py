@@ -20,6 +20,15 @@ from simplifier import (
     BOTHSET
 )
 
+
+CANTONESE_LANGUAGE = 0
+CHINESE_TRADITIONAL_LANGUAGE = 1
+CHINESE_SIMPLIFIED_LANGUAGE = 2
+
+TEXT_TO_TEXT_MODE = 0
+SOUND_TO_TEXT_MODE = 1
+MEANING_TO_TEXT_MODE = 2
+
 # zh-to-zh
 TRADITIONAL_MODE = 0
 SIMPLIFIED_MODE = 1
@@ -37,7 +46,7 @@ INVISIBLE_SIMPLIFIED_MODE = 4
 # meaning-to-zh
 # TODO
 
-# meaning-to-yue
+# meaning-to-canto
 # TODO
 
 
@@ -98,14 +107,14 @@ class Manager:
     SENTENCES_FILE = 'sentences/sentences_zh.csv'
     TRANSLATIONS_FILE = 'sentences/translations_zh.csv'
 
-    def __init__(self, profile, mode, custom_input=None):
+    def __init__(self, profile, language, mode, custom_input=None):
+        self.language = language
         self.mode = mode
         self.muted = False
         self.profile = profile
+        self.set_directory()
+
         self.new_translations = []
-        
-        self.stats = {}
-        self.stats[self.mode] = {int_today(): 0}
         
         self.index = None if custom_input is None else 0
         self.setup_profile(custom_input)
@@ -169,32 +178,72 @@ class Manager:
     def in_simplified_mode(self):
         return self.mode in [SIMPLIFIED_MODE, INVISIBLE_SIMPLIFIED_MODE]
 
-    def setup_profile(self, custom_input):
-        Path('./profiles/' + self.profile).mkdir(parents=True, exist_ok=True)
+    def set_directory(self):
+        ans = './profiles/' + self.profile + '/'
         
+        if self.language == CANTONESE_LANGUAGE:
+            ans += 'yue'
+        elif self.language == CHINESE_TRADITIONAL_LANGUAGE:
+            ans += 'zh-trad'
+        elif self.language == CHINESE_SIMPLIFIED_LANGUAGE:
+            ans += 'zh-simp'
+        else:
+            raise Exception
+
+        ans += '/'
+
+        if self.mode == TEXT_TO_TEXT_MODE:
+            ans += 'text-to-text'
+        elif self.mode == SOUND_TO_TEXT_MODE:
+            ans += 'sound-to-text'
+        elif self.mode == MEANING_TO_TEXT_MODE:
+            ans += 'meaning-to-text'
+        else:
+            raise Exception
+
+        self.directory = ans
+
+    def setup_profile(self, custom_input):
+        Path(self.directory).mkdir(parents=True, exist_ok=True)
+        
+        self.charfile = self.directory + '/characters.txt'
+        Path(self.charfile).touch()
+        self.setup_char_filter(custom_input)
+
+        self.review_stats_file = self.directory + '/reviews.csv'
+        Path(self.review_stats_file).touch()
+        self.setup_review_stats()
+
+        self.coverage_stats_file = self.directory + '/coverage.csv'
+        Path(self.coverage_stats_file).touch()
+        self.setup_coverage_stats()
+
+    def setup_review_stats(self):
+        self.reviews = {int_today(): 0}
+        with open(self.review_stats_file) as csvfile:
+            reader = csv.reader(csvfile)
+            for row in reader:
+                day, count = list(map(int, row))
+                self.reviews[day] = self.reviews.get(day, 0) + count
+
+    def setup_coverage_stats(self):
+        self.coverage = {}
+        with open(self.coverage_stats_file) as csvfile:
+            reader = csv.reader(csvfile)
+            for row in reader:
+                char, count = row[0], int(row[1])
+                self.coverage[char] = count
+
+    def setup_char_filter(self, custom_input):
         if custom_input is not None:
             self.char_filter = None
-        else:
-            self.charfile = './profiles/' + self.profile + '/characters.txt'
-            Path(self.charfile).touch()
+        else:        
             with open(self.charfile) as file:
                 file_content = set(file.read().strip())
                 if '*' in file_content or not file_content:
                     self.char_filter = None
                 else:
                     self.char_filter = {c for c in file_content if is_hanzi(c)}
-
-        self.statsfile = './profiles/' + self.profile + '/statistics.csv'
-        Path(self.statsfile).touch()
-        with open(self.statsfile) as csvfile:
-            reader = csv.reader(csvfile)
-            for row in reader:
-                mode, day, count = list(map(int, row))
-                if mode not in self.stats:
-                    self.stats[mode] = {}
-                if day not in self.stats[mode]:
-                    self.stats[mode][day] = 0
-                self.stats[mode][day] = count
 
     def update_char_filter(self):
         if self.char_filter is not None:
@@ -292,12 +341,17 @@ class Manager:
                 if eng:
                     writer.writerow([eng, zh])
 
-        with open(self.statsfile, 'w', newline='\n') as csvfile:
+        with open(self.review_stats_file, 'w', newline='\n') as csvfile:
             writer = csv.writer(csvfile)
-            for mode in sorted(self.stats):
-                for day in sorted(self.stats[mode]):
-                    count = self.stats[mode][day]
-                    writer.writerow([mode, day, count])
+            for day in sorted(self.reviews):
+                count = self.reviews[day]
+                writer.writerow([day, count])
+
+        with open(self.coverage_stats_file, 'w', newline='\n') as csvfile:
+            writer = csv.writer(csvfile)
+            for char in sorted(self.coverage):
+                count = self.coverage[char]
+                writer.writerow([char, count])
 
         if self.char_filter is not None:
             with open(self.charfile, 'w', newline='\n') as file:
@@ -333,7 +387,7 @@ class Manager:
             return self.zh_dict[sentence]
 
     def add_translation(self, sentence):
-        print('add translation / type lookup / press enter to skip')
+        print('add translation (or type \'lookup\'):')
         print()      
         s = input('  ').strip()
         if s == '':
@@ -341,7 +395,7 @@ class Manager:
         if s == 'lookup':
             translate_with_google(sentence, sl='zh', tl='en')
             self.print_sentence(sentence, False)
-            print('add translation / press enter to skip')
+            print('add translation (or press enter to skip):')
             print()  
             s = input('  ').strip()
         #if s:
@@ -361,13 +415,16 @@ class Manager:
         if translation is None:
             self.add_translation(sentence)
         else:
-            print()
             print(translation)
             print()
             s = input('  ')
 
         today = int_today()
-        self.stats[self.mode][today] = self.stats[self.mode].get(today, 0) + 1
+        self.reviews[today] = self.reviews.get(today, 0) + 1
+        
+        for c in set(sentence):
+            if is_hanzi(c):
+                self.coverage[c] = self.coverage.get(c, 0) + 1
         
     def matches(self, sentence, received):
         a = tuple(s for s in sentence if s not in self.PUNCTUATION)
@@ -378,19 +435,19 @@ class Manager:
         return self.mode in [INVISIBLE_TRADITIONAL_MODE, INVISIBLE_SIMPLIFIED_MODE]
 
     def get_stats_today(self):
-        return self.stats[self.mode].get(int_today(), 0)
+        return self.reviews.get(int_today(), 0)
 
     def get_stats_week(self):
         a = int_today()
         ans = 0
         for i in range(7):
-            ans += self.stats[self.mode].get(a - i, 0)
+            ans += self.reviews.get(a - i, 0)
         return ans
 
     def get_stats_total(self):
         ans = 0
-        for dates in self.stats[self.mode]:
-            ans += self.stats[self.mode][dates]
+        for dates in self.reviews:
+            ans += self.reviews[dates]
         return ans
 
     def mode_str(self):
@@ -518,7 +575,7 @@ class Manager:
 
 
 def main():
-    manager = Manager('default', TRADITIONAL_MODE)#, 'mindiworldnews/20260324.txt')
+    manager = Manager('default', CHINESE_TRADITIONAL_LANGUAGE, TEXT_TO_TEXT_MODE)#, 'mindiworldnews/20260324.txt')
     manager.run()
 
 
