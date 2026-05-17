@@ -127,22 +127,27 @@ class Manager:
 
     def speak(self, s, temp=True):
         try:
+            voice = '--voice zh-HK-HiuGaaiNeural' if self.language == CANTONESE_LANGUAGE else ''
+            folder = 'yue' if self.language == CANTONESE_LANGUAGE else 'zh'
             if temp:
                 if self.temp_sound != s:
-                    systemcall('edge-tts --text "%s" --write-media sounds/temp.mp3 >/dev/null 2>&1; afplay sounds/temp.mp3 >/dev/null 2>&1' % s)
+                    systemcall('edge-tts %s --text "%s" --write-media sounds/%s/temp.mp3 >/dev/null 2>&1; afplay sounds/%s/temp.mp3 >/dev/null 2>&1' % (voice, s, folder, folder))
                     self.temp_sound = s
                 else:
-                    system('afplay sounds/temp.mp3 >/dev/null 2>&1')
+                    system('afplay sounds/%s/temp.mp3 >/dev/null 2>&1' % folder)
             else:
-                file_name = "sounds/%s.mp3" % s
+                file_name = "sounds/%s/%s.mp3" % (folder, s)
                 file_path = Path(file_name)
 
                 if not file_path.exists():
-                    systemcall('edge-tts --text "%s" --write-media %s >/dev/null 2>&1; afplay %s >/dev/null 2>&1' % (s, file_name, file_name))
+                    systemcall('edge-tts %s --text "%s" --write-media %s >/dev/null 2>&1; afplay %s >/dev/null 2>&1' % (voice, s, file_name, file_name))
                 else:
                     system('afplay %s >/dev/null 2>&1' % file_name)
         except SystemCallError:
-            system('say -v Meijia ' + s)
+            if self.language == CANTONESE_LANGUAGE:
+                system('say -v Meijia ' + s)
+            else:
+                system('say -v Sinji ' + s)
 
     def has_unallowed_chars(self, s):
         chars = set(s) - set(self.PUNCTUATION)
@@ -416,7 +421,8 @@ class Manager:
         if s == '':
             return
         if s == 'lookup':
-            translate_with_google(sentence, sl='zh', tl='en')
+            sl ='yue' if self.language == CANTONESE_LANGUAGE else 'zh'
+            translate_with_google(sentence, sl=sl, tl='en')
             self.print_sentence(sentence, False)
             print('add translation (or press enter to skip):')
             print()  
@@ -602,7 +608,7 @@ class Manager:
 
 
 def main():
-    manager = Manager('default', CHINESE_TRADITIONAL_LANGUAGE, TEXT_TO_TEXT_MODE)#, 'mindiworldnews/20260324.txt')
+    manager = Manager('default', CANTONESE_LANGUAGE, TEXT_TO_TEXT_MODE)#, 'mindiworldnews/20260324.txt')
     manager.run()
 
 
