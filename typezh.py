@@ -107,15 +107,17 @@ class Manager:
     SENTENCES_FILE = 'sentences/sentences_zh.csv'
     TRANSLATIONS_FILE = 'sentences/translations_zh.csv'
 
-    def __init__(self, profile, language, mode, custom_input=None):
+    def __init__(self, profile, language, mode, filtered=True, custom_input=None):
+        self.profile = profile
         self.language = language
         self.mode = mode
-        self.muted = False
-        self.profile = profile
-        self.set_directory()
+        self.char_filter_on = filtered
 
-        self.new_translations = []
+        if self.char_filter_on:
+            assert custom_input is None
         
+        self.set_directory()
+        self.new_translations = []
         self.index = None if custom_input is None else 0
         self.setup_profile(custom_input)
         self.read_sentences(custom_input)
@@ -124,28 +126,27 @@ class Manager:
         self.temp_sound = ''
 
     def speak(self, s, temp=True):
-        if not self.muted:
-            try:
-                if temp:
-                    if self.temp_sound != s:
-                        systemcall('edge-tts --text "%s" --write-media sounds/temp.mp3 >/dev/null 2>&1; afplay sounds/temp.mp3 >/dev/null 2>&1' % s)
-                        self.temp_sound = s
-                    else:
-                        system('afplay sounds/temp.mp3 >/dev/null 2>&1')
+        try:
+            if temp:
+                if self.temp_sound != s:
+                    systemcall('edge-tts --text "%s" --write-media sounds/temp.mp3 >/dev/null 2>&1; afplay sounds/temp.mp3 >/dev/null 2>&1' % s)
+                    self.temp_sound = s
                 else:
-                    file_name = "sounds/%s.mp3" % s
-                    file_path = Path(file_name)
+                    system('afplay sounds/temp.mp3 >/dev/null 2>&1')
+            else:
+                file_name = "sounds/%s.mp3" % s
+                file_path = Path(file_name)
 
-                    if not file_path.exists():
-                        systemcall('edge-tts --text "%s" --write-media %s >/dev/null 2>&1; afplay %s >/dev/null 2>&1' % (s, file_name, file_name))
-                    else:
-                        system('afplay %s >/dev/null 2>&1' % file_name)
-            except SystemCallError:
-                system('say -v Meijia ' + s)
+                if not file_path.exists():
+                    systemcall('edge-tts --text "%s" --write-media %s >/dev/null 2>&1; afplay %s >/dev/null 2>&1' % (s, file_name, file_name))
+                else:
+                    system('afplay %s >/dev/null 2>&1' % file_name)
+        except SystemCallError:
+            system('say -v Meijia ' + s)
 
     def has_unallowed_chars(self, s):
         chars = set(s) - set(self.PUNCTUATION)
-        if self.char_filter:
+        if self.char_filter_on:
             zh_chars = {c for c in chars if is_hanzi(c)}
             if len(zh_chars - self.char_filter) > 0:
                 return True
@@ -235,28 +236,39 @@ class Manager:
                 self.coverage[char] = count
 
     def setup_char_filter(self, custom_input):
-        if custom_input is not None:
-            self.char_filter = None
-        else:        
-            with open(self.charfile) as file:
-                file_content = set(file.read().strip())
-                if '*' in file_content or not file_content:
-                    self.char_filter = None
-                else:
-                    self.char_filter = {c for c in file_content if is_hanzi(c)}
+        with open(self.charfile) as file:
+            file_content = set(file.read().strip())
+            self.char_filter = {c for c in file_content if is_hanzi(c)}
 
     def update_char_filter(self):
-        if self.char_filter is not None:
+        if not self.in_sequential_mode():
+            filter_off = not self.char_filter_on
+            
+            clear_screen()
+            if len(self.zh_sentences) == 0:
+                print()
+                print('right now there are no sentences to review')
+            if filter_off:
+                print()
+                raise KeyboardInterrupt
+
+            self.char_filter_on = True
+            self.update_sentences()
             a = len(self.zh_sentences)
             b = len(self.char_filter)
-            clear_screen()
+
             print()
-            print('reviewable characters:', b)
-            print('reviewable sentences :', a) 
+            if filter_off:
+                print('character filter is currently off.')
+                print()
+            print('reviewable characters with filter:', b)
+            print(' reviewable sentences with filter:', a) 
+            
             delta = 20
             addable = sorted([c for c in self.counter if c not in self.char_filter], key=lambda x: -self.counter[x])
             addable = ''.join(addable[:delta])
             pyperclip.copy(addable)
+            
             print()
             print('next %s most common characters:' % delta)
             print()
@@ -264,14 +276,24 @@ class Manager:
             print()
             print('enter additional characters to review:')
             print()
+            
             s = input('  ')
             s = {c for c in s if is_hanzi(c)} - self.char_filter
+            
             if s:
                 self.char_filter |= s
+                bb = len(self.char_filter)
+                
                 self.update_sentences()
+                aa = len(self.zh_sentences)
+                
+                if filter_off:
+                    self.char_filter_on = False
+                    self.update_sentences()
+                
                 print()
-                print('reviewable characters:', b, '->', len(self.char_filter))
-                print('reviewable sentences :', a, '->', len(self.zh_sentences)) 
+                print('reviewable characters with filter:', b, '->', bb)
+                print(' reviewable sentences with filter:', a, '->', aa) 
                 print()
                 input('')
 
@@ -355,7 +377,9 @@ class Manager:
 
         if self.char_filter is not None:
             with open(self.charfile, 'w', newline='\n') as file:
-                chars = sorted(self.char_filter, key=lambda x: -self.counter[x])
+                if '*' in self.char_filter:
+                    file.write('*\n')
+                chars = sorted(self.char_filter - {'*'}, key=lambda x: -self.counter[x])
                 delta = 18
                 for i in range(0, len(chars), delta):
                     file.write(''.join(chars[i:i + delta]) + '\n')
@@ -368,14 +392,13 @@ class Manager:
             except KeyboardInterrupt:
                 self.quit = True
         self.save()
-        clear_screen()
+        # clear_screen()
         print()
 
     def get_sentence(self):
         if (self.index is None and len(self.zh_sentences) == 0) or (self.index is not None and self.index >= len(self.zh_sentences)):
-            print()
-            print('(there are no sentences to review)')
-            raise KeyboardInterrupt
+            self.update_char_filter()
+            return self.get_sentence()
         elif self.index is None:
             return random.choice(self.zh_sentences)
         else:
@@ -465,15 +488,16 @@ class Manager:
             sentence = sentence[:len(base)] + ''.join(['一' if is_hanzi(c) else c for c in sentence[len(base):]])
 
         if self.in_sequential_mode():
-            rnum_str = 'sentence # %s / %s' % (self.index, len(self.zh_sentences))
+            rnum_str = 'sentence # %s' % self.index
         else:
-            a = self.get_stats_today()
+            a = self.get_stats_today() + 1 
             b = self.get_stats_week()
-            rnum_str = 'reviews: %s (today), %s (weekly average)' % (a + 1, round((b + 1) / 7.0, 2))
+            b = round((b + 1) / 7.0, 2)
+            # rnum_str = 'reviews: %s (today), %s (weekly average)' % (a, b)
 
         clear_screen()
         print()
-        print(self.mode_str(), rnum_str)
+        print(self.mode_str(), 'reviewable:', len(self.zh_sentences), '| today (week):', a, '(%s)' % b)
         print()
         print(' ', sentence)
         print()
@@ -502,6 +526,23 @@ class Manager:
         else:
             return sentence[:end]
 
+    def jump(self, sentence):
+        if self.in_sequential_mode():
+            clear_screen()
+            print()
+            print('translated document:')
+            while True:
+                translate = self.get_translation(sentence)
+                if translate is None:
+                    break
+                print()
+                print(' ', sentence)
+                print()
+                print(' ', translate)
+                print()
+                input('(press enter to continue)')
+                sentence = self.get_sentence()
+
     def review(self):
         aloud = self.is_invisible()
         sentence = self.get_sentence()
@@ -521,21 +562,7 @@ class Manager:
                 break
 
             if s == 'jump':
-                if self.in_sequential_mode():
-                    clear_screen()
-                    print()
-                    print('translated document:')
-                    while True:
-                        translate = self.get_translation(sentence)
-                        if translate is None:
-                            break
-                        print()
-                        print(' ', sentence)
-                        print()
-                        print(' ', translate)
-                        print()
-                        input('(press enter to continue)')
-                        sentence = self.get_sentence()
+                self.jump(sentence)
                 aloud = False
                 continue
             
