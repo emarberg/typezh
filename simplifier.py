@@ -3804,6 +3804,7 @@ tsmap = {
     '嗇': '啬',
     '狽': '狈',
     '詛': '诅',
+    '鎧': '铠',
     '訕': '讪',
     '誒': '诶',
     '嘍': '喽',
@@ -3855,6 +3856,20 @@ for traditionalkey, simplifiedvalue in tsmap.items():
 
 def simplify(w):
     return ''.join([tsmap.get(s, s) for s in w])
+
+
+def unsimplify(w):
+    ans = ''
+    for s in w:
+        if s in reverse_tsmap:
+            options = reverse_tsmap[s]
+            if len(options) == 1:
+                ans += options[0]
+            else:
+                return
+        else:
+            ans += s
+    return ans
 
 
 def is_simplified(w):

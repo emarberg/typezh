@@ -104,8 +104,7 @@ def systemcall(command):
 class Manager:
 
     PUNCTUATION = '\'-#`•／‘」}{+~；。*@﹐°「？→(─—‧_﹣《<]./¨=\\\'！&』["!)’－₣>;$・”％“》〉〈,:、）»﹖?﹗＂%，．·^|：～（«\\\\–『\' 【】'
-    SENTENCES_FILE = 'sentences/sentences_zh.csv'
-    TRANSLATIONS_FILE = 'sentences/translations_zh.csv'
+    SENTENCES_FILE = 'sentences/sentences_yue.csv'
 
     def __init__(self, profile, language, mode, filtered=True, custom_input=None):
         self.profile = profile
@@ -127,8 +126,8 @@ class Manager:
 
     def speak(self, s, temp=True):
         try:
-            voice = '--voice zh-HK-HiuGaaiNeural' if self.language == CANTONESE_LANGUAGE else ''
-            folder = 'yue' if self.language == CANTONESE_LANGUAGE else 'zh'
+            voice = '--voice zh-HK-HiuGaaiNeural' if self.in_cantonese_mode() else ''
+            folder = 'yue' if self.in_cantonese_mode() else 'zh'
             if temp:
                 if self.temp_sound != s:
                     systemcall('edge-tts %s --text "%s" --write-media sounds/%s/temp.mp3 >/dev/null 2>&1; afplay sounds/%s/temp.mp3 >/dev/null 2>&1' % (voice, s, folder, folder))
@@ -144,7 +143,7 @@ class Manager:
                 else:
                     system('afplay %s >/dev/null 2>&1' % file_name)
         except SystemCallError:
-            if self.language == CANTONESE_LANGUAGE:
+            if self.in_cantonese_mode():
                 system('say -v Meijia ' + s)
             else:
                 system('say -v Sinji ' + s)
@@ -176,7 +175,7 @@ class Manager:
         return self.index is not None
 
     def in_cantonese_mode(self):
-        return False
+        return self.language == CANTONESE_LANGUAGE
 
     def in_traditional_mode(self):
         return self.mode in [TRADITIONAL_MODE, INVISIBLE_TRADITIONAL_MODE]
@@ -304,11 +303,10 @@ class Manager:
 
     def sentence_files(self):
         yield self.SENTENCES_FILE
-        yield "./profiles/" + self.profile + "/sentences_zh.csv"
+        # yield "./profiles/" + self.profile + "/sentences_zh.csv"
 
     def translation_files(self):
-        yield self.TRANSLATIONS_FILE
-        yield "./profiles/" + self.profile + "/translations_zh.csv"
+        yield self.directory + "/translations.csv"
 
     def update_sentences(self):
         self.zh_sentences = [s for s in self.all_sentences if not self.has_unallowed_chars(s)]
@@ -346,21 +344,8 @@ class Manager:
             self.counter = Counter([c for s in self.all_sentences for c in s if is_hanzi(c)])
             self.update_sentences()
 
-        #for zh in self.zh_sentences:
-        #    print(zh)
-        #    print()
-        # print()
-        # print(self.char_filter)
-        # input('')
-        # for zh, eng in self.zh_dict.items():
-        #     if eng:
-        #         print(zh)
-        #         print(eng)
-        #         print()
-        #input('')
-
     def save(self):
-        file = "./profiles/" + self.profile + "/translations_zh.csv"
+        file = self.directory + "/translations.csv"
         Path(file).touch()
         with open(file, 'a', newline='\n') as csvfile:
             writer = csv.writer(csvfile)
@@ -382,9 +367,7 @@ class Manager:
 
         if self.char_filter is not None:
             with open(self.charfile, 'w', newline='\n') as file:
-                if '*' in self.char_filter:
-                    file.write('*\n')
-                chars = sorted(self.char_filter - {'*'}, key=lambda x: -self.counter[x])
+                chars = sorted(self.char_filter, key=lambda x: -self.counter[x])
                 delta = 18
                 for i in range(0, len(chars), delta):
                     file.write(''.join(chars[i:i + delta]) + '\n')
@@ -421,7 +404,7 @@ class Manager:
         if s == '':
             return
         if s == 'lookup':
-            sl ='yue' if self.language == CANTONESE_LANGUAGE else 'zh'
+            sl ='yue' if self.in_cantonese_mode() else 'zh'
             translate_with_google(sentence, sl=sl, tl='en')
             self.print_sentence(sentence, False)
             print('add translation (or press enter to skip):')
